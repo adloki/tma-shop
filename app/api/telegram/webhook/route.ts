@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Bot } from 'grammy';
-import { validateInitDataServer } from '@/lib/telegram/server-auth';
-
 // Инициализация бота и Redis
 const bot = new Bot(process.env.BOT_TOKEN || '');
 const ratelimit = new Ratelimit({
