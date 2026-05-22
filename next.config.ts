@@ -1,11 +1,6 @@
 import type { NextConfig } from "next";
 
-import "@/lib/env";
-
-const supabaseUrl = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(
-  /\/rest\/v1\/?$/i,
-  "",
-);
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseHost = supabaseUrl ? new URL(supabaseUrl).hostname : "localhost";
 
 const nextConfig: NextConfig = {
