@@ -1,8 +1,1 @@
-import { handleTelegramWebhook } from "@/lib/telegram/bot";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-export async function POST(request: Request) {
-  return handleTelegramWebhook(request);
-}
+ts<br>import { Ratelimit } from '@upstash/ratelimit';<br>import { Redis } from '@upstash/redis';<br><br>const ratelimit = new Ratelimit({<br>  redis: Redis.fromEnv(),<br>  limiter: Ratelimit.slidingWindow(3, '1 s'),<br>});<br><br>export async function POST(req: Request) {<br>  const ip = req.headers.get('x-forwarded-for') ?? 'unknown';<br>  const { success } = await ratelimit.limit(ip);<br>  if (!success) return new Response('Too Many Requests', { status: 429 });<br>  // ... дальше обработка webhook<br>}
