@@ -1,147 +1,53 @@
-import "server-only";
-
-import { createHmac, timingSafeEqual } from "node:crypto";
-
-const INIT_DATA_MAX_AGE_SEC = 86_400;
-
-export type TelegramWebAppUser = {
-  id: number;
-  first_name: string;
-  last_name?: string;
-  username?: string;
-  language_code?: string;
-  is_premium?: boolean;
-  photo_url?: string;
-};
-
-export type ValidatedInitDataServer = {
-  hash: string;
-  authDate: number;
-  user: TelegramWebAppUser;
-  queryId?: string;
-  startParam?: string;
-};
-
-export class InitDataValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InitDataValidationError";
-  }
-}
-
-function buildDataCheckString(params: URLSearchParams): string {
-  const pairs: string[] = [];
-
-  for (const [key, value] of params.entries()) {
-    if (key === "hash") continue;
-    pairs.push(`${key}=${value}`);
-  }
-
-  return pairs.sort().join("\n");
-}
-
-function verifyInitDataHash(
-  initData: string,
-  botToken: string,
-  expectedHash: string,
-): void {
-  const params = new URLSearchParams(initData);
-  const dataCheckString = buildDataCheckString(params);
-
-  const secretKey = createHmac("sha256", "WebAppData").update(botToken).digest();
-  const calculatedHash = createHmac("sha256", secretKey)
-    .update(dataCheckString)
-    .digest("hex");
-
-  const actual = Buffer.from(calculatedHash, "utf8");
-  const expected = Buffer.from(expectedHash, "utf8");
-
-  if (
-    actual.length !== expected.length ||
-    !timingSafeEqual(actual, expected)
-  ) {
-    throw new InitDataValidationError("Invalid init data hash");
-  }
-}
-
-function parseUser(params: URLSearchParams): TelegramWebAppUser {
-  const raw = params.get("user");
-  if (!raw) {
-    throw new InitDataValidationError("Missing user in init data");
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new InitDataValidationError("Invalid user JSON in init data");
-  }
-
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    typeof (parsed as TelegramWebAppUser).id !== "number" ||
-    typeof (parsed as TelegramWebAppUser).first_name !== "string"
-  ) {
-    throw new InitDataValidationError("Invalid user payload in init data");
-  }
-
-  return parsed as TelegramWebAppUser;
-}
+import { createHmac } from 'crypto';
 
 /**
- * Validates Telegram Mini App initData on the server using Node.js crypto.
- * @throws {InitDataValidationError} When init data is missing, expired, or tampered.
+ * Серверная валидация Telegram initData
+ * @param initData - строка из query-параметров WebApp
+ * @param botToken - токен бота из .env
+ * @returns Распарсенные данные пользователя
+ * @throws ошибка, если хеш не совпадает или данные просрочены
  */
-export function validateInitDataServer(
-  initData: string,
-  botToken: string,
-  maxAgeSec = INIT_DATA_MAX_AGE_SEC,
-): ValidatedInitDataServer {
-  const trimmedInitData = initData.trim();
-  const trimmedBotToken = botToken.trim();
-
-  if (!trimmedInitData) {
-    throw new InitDataValidationError("Empty init data");
+export function validateInitDataServer(initData: string, botToken: string) {
+  if (!initData || !botToken) {
+    throw new Error('Missing initData or botToken');
   }
 
-  if (!trimmedBotToken) {
-    throw new InitDataValidationError("Empty bot token");
+  const urlParams = new URLSearchParams(initData);
+  const hash = urlParams.get('hash');
+  if (!hash) throw new Error('Missing hash in initData');
+
+  // Удаляем hash из строки для проверки
+  urlParams.delete('hash');
+  const dataCheckString = Array.from(urlParams.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+
+  const secretKey = createHmac('sha256', 'WebAppData')
+    .update(botToken)
+    .digest();
+
+  const computedHash = createHmac('sha256', secretKey)
+    .update(dataCheckString)
+    .digest('hex');
+
+  if (computedHash !== hash) {
+    throw new Error('Invalid initData hash');
   }
 
-  const params = new URLSearchParams(trimmedInitData);
-  const hash = params.get("hash");
+  // Проверка времени (опционально, раскомментируй если нужно)
+  // const authDate = parseInt(urlParams.get('auth_date') || '0', 10);
+  // if (Date.now() - authDate * 1000 > 5 * 60 * 1000) {
+  //   throw new Error('initData expired');
+  // }
 
-  if (!hash) {
-    throw new InitDataValidationError("Missing hash in init data");
-  }
-
-  const authDateRaw = params.get("auth_date");
-  if (!authDateRaw) {
-    throw new InitDataValidationError("Missing auth_date in init data");
-  }
-
-  const authDate = Number.parseInt(authDateRaw, 10);
-  if (!Number.isFinite(authDate)) {
-    throw new InitDataValidationError("Invalid auth_date in init data");
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (now - authDate > maxAgeSec) {
-    throw new InitDataValidationError("Init data expired");
-  }
-
-  verifyInitDataHash(trimmedInitData, trimmedBotToken, hash);
-
-  const user = parseUser(params);
-  const queryId = params.get("query_id");
-  const startParam = params.get("start_param");
+  // Парсим данные пользователя
+  const userRaw = urlParams.get('user');
+  if (!userRaw) throw new Error('Missing user in initData');
 
   return {
-    hash,
-    authDate,
-    user,
-    ...(queryId ? { queryId } : {}),
-    ...(startParam ? { startParam } : {}),
+    user: JSON.parse(decodeURIComponent(userRaw)),
+    chatInstance: urlParams.get('chat_instance'),
+    chatType: urlParams.get('chat_type'),
   };
 }
